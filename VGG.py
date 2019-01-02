@@ -41,112 +41,22 @@ class VGG:  #VGG classifier
     CONV_BIAS_INITIALIZER = tf.constant_initializer(value = 0.0)
     FC_WEIGHT_INITIALIZER = tf.truncated_normal_initializer(stddev = 0.1)
     FC_BIAS_INITIALIZER = tf.constant_initializer(value=0.0)
-
-    #成员函数
-    #Train once
-    def train(self, batch_input, batch_output, learning_rate):
-        _, accuracy, loss = self.sess.run([self.optimizer, self.accuracy, self.loss],
-            feed_dict = {self.input: batch_input, 
-                        self.desired_out: batch_output,
-                        self.learning_rate: learning_rate})
-        return {"accuracy":accuracy, "loss":loss}
-
-    #Test after training
-    def forward(self, batch_input):
-        return self.sess.run(self.output, feed_dict={self.input: batch_input})
-
-    def save(self, save_path, steps):
-        saver = tf.train.Saver(max_to_keep=5)
-        saver.save(self.sess, save_path, global_step=steps)
-
-    def restore(self, restore_path):
-        path = tf.train.latest_checkpoint(restore_path)
-        print("[*]Restore from %s" %(path))
-        if path == None:
-            return False
-        saver = tf.train.Saver(max_to_keep=5)
-        saver.restore(self.sess, path)
-        return True
-
-    #Batch Normalization
-    def bn(self, x, name="BN"):
-        #return x
-        axes = [d for d in range(len(x.get_shape()))]
-        beta =  self._get_variable("beta",  shape = [], initializer = tf.constant_initializer(0.0))
-        gamma = self._get_variable("gamma", shape = [], initializer = tf.constant_initializer(1.0))
-        x_mean, x_variance = tf.nn.moments(x, axes)   #check this
-        y = tf.nn.batch_normalization(x, x_mean, x_variance, beta, gamma, 1e-10, name)
-        return y
-
-    def get_optimizer(self):
-        #optimizer
-        #self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
-        #self.optimizer = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.loss)
-        self.optimizer = tf.train.MomentumOptimizer(self.learning_rate, self.MOMENTUM).minimize(self.loss)
-
-    #run a conv + relu to x
-    def conv(self, x, name, channels, ksize=3):
-        x_shape = x.get_shape()
-        x_channels = x_shape[3].value
-        weight_shape = [ksize, ksize, x_channels, channels]
-        bias_shape = [channels]
-        weight = self._get_variable("weight", weight_shape, initializer = self.CONV_WEIGHT_INITIALIZER)
-        bias =   self._get_variable("bias",   bias_shape,   initializer = self.CONV_BIAS_INITIALIZER)
-        y = tf.nn.conv2d(x, weight, strides=[1,1,1,1], padding=self.CONV_PADDING, name=name)
-        y = tf.add(y, bias, name=name)
-        return y
-
-    def max_pool(self,x,name):
-        return tf.nn.max_pool(x, ksize=[1,2,2,1], strides=[1,2,2,1], padding=self.MAX_POOL_PADDING, name=name)
-
-    #定义_get_variable方便进行l2_regularization以及其他一些操作
-    def _get_variable(self, name, shape, initializer):
-        param = 1
-        for i in range(0, len(shape)):
-            param *= shape[i]
-        self.param_num += param
-
-        if self.WEIGHT_DECAY > 0:
-            regularizer = tf.contrib.layers.l2_regularizer(self.WEIGHT_DECAY)
-        else:
-            regularizer = None
-        return tf.get_variable(name, 
-                            shape=shape,
-                            initializer=initializer,
-                            regularizer=regularizer)
-
-    def fc(self, x, num, name):
-        x_num = x.get_shape()[1].value
-        #x = x.eval(session=self.sess)
-        weight_shape = [x_num, x]
-        bias_shape = [num]
-        weight = self._get_variable("weight", shape=weight_shape, initializer=self.FC_WEIGHT_INITIALIZER)
-        bias =   self._get_variable("bias",   shape=bias_shape,   initializer=self.FC_BIAS_INITIALIZER)
-        y = tf.add(tf.matmul(x, weight), bias, name=name)
-        return y
-
-    def _loss(self):
-        cross_entropy = tf.reduce_sum(self.desired_out * tf.log(tf.clip_by_value(self.output, 1e-10, 1.0)))
-        regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-        self.loss = tf.add_n([cross_entropy] + regularization_losses)
-        return self.loss
     
-    #in this code __init__ called by VGG([None,28,28,1], [100,100,100,10],activate_fun=tf.sigmoid)
     def __init__(self, input_sz, fc_layers, conv_info, activate_fun=tf.nn.relu):
         self.ACTIVATE = activate_fun
         self.param_num = 0 #返回参数个数
         self.sess = tf.Session()
         layers = []
+
         #(1)placeholder定义(输入、输出、learning_rate)
         #input
         self.input = tf.placeholder(tf.float32, input_sz, name="input")
         layers.append(self.input)
-        #
         layers.append(self.bn(layers[-1]))
 
         #output
         output_sz = [None, fc_layers[-1]]
-        self.desired_out = tf.placeholder(tf.float32, output_sz,name="desired_out")
+        self.desired_out = tf.placeholder(tf.float32, output_sz, name="desired_out")
         self.learning_rate = tf.placeholder(tf.float32, name="learning_rate")
 
         #(2)插入卷积层+池化层
@@ -202,9 +112,10 @@ class VGG:  #VGG classifier
                 with tf.variable_scope("fc_%d" %(fc_id)):
                     num = fc_layers[fc_id]
                     x = layers[-1]
-                    x2 = self.bn(x)
-                    x3 = self.ACTIVATE(x, name="relu")
-                    y = self.fc(x3, num, 'fc')
+                    x = self.bn(x)
+                    if fc_id < (len(fc_layers) - 1)
+                        x = self.ACTIVATE(x, name="relu")
+                    y = self.fc(x, num, 'fc')
                     layers.append(y)
 
         #(5)softmax和loss函数
@@ -220,6 +131,95 @@ class VGG:  #VGG classifier
         self.get_optimizer()
         self.sess.run(tf.global_variables_initializer())
         writer = tf.summary.FileWriter("./tboard/", self.sess.graph)
+    
+    #成员函数
+    #Train once
+    def train(self, batch_input, batch_output, learning_rate):
+        _, accuracy, loss = self.sess.run([self.optimizer, self.accuracy, self.loss],
+            feed_dict = {self.input: batch_input, 
+                        self.desired_out: batch_output,
+                        self.learning_rate: learning_rate})
+        return {"accuracy":accuracy, "loss":loss}
+
+    #Test after training
+    def forward(self, batch_input):
+        return self.sess.run(self.output, feed_dict={self.input: batch_input})
+
+    def save(self, save_path, steps):
+        saver = tf.train.Saver(max_to_keep=5)
+        saver.save(self.sess, save_path, global_step=steps)
+
+    def restore(self, restore_path):
+        path = tf.train.latest_checkpoint(restore_path)
+        print("[*]Restore from %s" %(path))
+        if path == None:
+            return False
+        saver = tf.train.Saver(max_to_keep=5)
+        saver.restore(self.sess, path)
+        return True
+
+    #Batch Normalization
+    def bn(self, x, name="BN"):
+        #return x
+        axes = [d for d in range(len(x.get_shape()))]
+        beta =  self._get_variable("beta",  shape = [], initializer = tf.constant_initializer(0.0))
+        gamma = self._get_variable("gamma", shape = [], initializer = tf.constant_initializer(1.0))
+        x_mean, x_variance = tf.nn.moments(x, axes)   #Calculate the mean and variance of x, return 2 tensor: mean and variance
+        y = tf.nn.batch_normalization(x, x_mean, x_variance, beta, gamma, 1e-10, name)
+        return y
+
+    def get_optimizer(self):
+        #optimizer
+        #self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
+        #self.optimizer = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.loss)
+        self.optimizer = tf.train.MomentumOptimizer(self.learning_rate, self.MOMENTUM).minimize(self.loss)
+
+    #run a conv + relu to x
+    def conv(self, x, name, channels, ksize=3):
+        x_shape = x.get_shape()
+        x_channels = x_shape[3].value
+        weight_shape = [ksize, ksize, x_channels, channels]
+        bias_shape = [channels]
+        weight = self._get_variable("weight", weight_shape, initializer = self.CONV_WEIGHT_INITIALIZER)
+        bias =   self._get_variable("bias",   bias_shape,   initializer = self.CONV_BIAS_INITIALIZER)
+        y = tf.nn.conv2d(x, weight, strides=[1,1,1,1], padding=self.CONV_PADDING, name=name)
+        y = tf.add(y, bias, name=name)
+        return y
+
+    def max_pool(self,x,name):
+        return tf.nn.max_pool(x, ksize=[1,2,2,1], strides=[1,2,2,1], padding=self.MAX_POOL_PADDING, name=name)
+
+    #定义_get_variable方便进行l2_regularization以及其他一些操作
+    def _get_variable(self, name, shape, initializer):
+        param = 1
+        for i in range(0, len(shape)):
+            param *= shape[i]
+        self.param_num += param
+
+        if self.WEIGHT_DECAY > 0:
+            regularizer = tf.contrib.layers.l2_regularizer(self.WEIGHT_DECAY)
+        else:
+            regularizer = None
+        return tf.get_variable(name, 
+                            shape=shape,
+                            initializer=initializer,
+                            regularizer=regularizer)
+
+    def fc(self, x, num, name):
+        x_num = x.get_shape()[1].value
+        #x = x.eval(session=self.sess)
+        weight_shape = [x_num, num]
+        bias_shape = [num]
+        weight = self._get_variable("weight", shape=weight_shape, initializer=self.FC_WEIGHT_INITIALIZER)
+        bias =   self._get_variable("bias",   shape=bias_shape,   initializer=self.FC_BIAS_INITIALIZER)
+        y = tf.add(tf.matmul(x, weight), bias, name=name)
+        return y
+
+    def _loss(self):
+        cross_entropy = tf.reduce_sum(self.desired_out * tf.log(tf.clip_by_value(self.output, 1e-10, 1.0)))
+        regularization_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+        self.loss = tf.add_n([cross_entropy] + regularization_losses)
+        return self.loss
 
     def __del__(self):
         self.sess.close()
